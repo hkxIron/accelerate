@@ -65,7 +65,7 @@ def get_dataloaders(accelerator: Accelerator, batch_size: int = 16):
 
     # Apply the method we just defined to all the examples in all the splits of the dataset
     # starting with the main process first:
-    with accelerator.main_process_first():
+    with accelerator.main_process_first(): # process_index=0会先处理
         tokenized_datasets = datasets.map(
             tokenize_function,
             batched=True,
@@ -165,7 +165,7 @@ def training_function(config, args):
             loss = loss / gradient_accumulation_steps
             accelerator.backward(loss)
             if step % gradient_accumulation_steps == 0:
-                optimizer.step()
+                optimizer.step() # 只有在optimizer.step时,才会更新optimizer参数, 即每隔gradient_accumulation_steps才会更新一次参数,之前进行梯度累积
                 lr_scheduler.step()
                 optimizer.zero_grad()
 

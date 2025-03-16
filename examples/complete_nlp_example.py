@@ -52,7 +52,7 @@ def training_function(config, args):
     dataloader_config = DataLoaderConfiguration(use_stateful_dataloader=args.use_stateful_dataloader)
     if args.with_tracking:
         accelerator = Accelerator(
-            cpu=args.cpu,
+            cpu=args.cpu, # 是否强制使用cpu
             mixed_precision=args.mixed_precision,
             dataloader_config=dataloader_config,
             log_with="all",
@@ -110,15 +110,15 @@ def training_function(config, args):
     # If the batch size is too big we use gradient accumulation
     gradient_accumulation_steps = 1
     if batch_size > MAX_GPU_BATCH_SIZE and accelerator.distributed_type != DistributedType.XLA:
-        gradient_accumulation_steps = batch_size // MAX_GPU_BATCH_SIZE
+        gradient_accumulation_steps = batch_size // MAX_GPU_BATCH_SIZE # 自动进行梯度累加
         batch_size = MAX_GPU_BATCH_SIZE
 
     def collate_fn(examples):
         # On TPU it's best to pad everything to the same length or training will be very slow.
         max_length = 128 if accelerator.distributed_type == DistributedType.XLA else None
         # When using mixed precision we want round multiples of 8/16
-        if accelerator.mixed_precision == "fp8":
-            pad_to_multiple_of = 16
+        if accelerator.mixed_precision == "fp8": # 是否需要进行8/16整数倍的token数量填充
+            pad_to_multiple_of = 16 
         elif accelerator.mixed_precision != "no":
             pad_to_multiple_of = 8
         else:
@@ -202,19 +202,21 @@ def training_function(config, args):
         if args.resume_from_checkpoint and epoch == starting_epoch and resume_step is not None:
             # We need to skip steps until we reach the resumed step
             if not args.use_stateful_dataloader:
-                active_dataloader = accelerator.skip_first_batches(train_dataloader, resume_step)
+                # DataLoader也必须从上一次训练的地方继续训练
+                active_dataloader = accelerator.skip_first_batches(train_dataloader, num_batches=resume_step)
             else:
                 active_dataloader = train_dataloader
             overall_step += resume_step
         else:
             # After the first iteration though, we need to go back to the original dataloader
             active_dataloader = train_dataloader
+
         for step, batch in enumerate(active_dataloader):
             # We could avoid this line since we set the accelerator with `device_placement=True`.
             batch.to(accelerator.device)
             outputs = model(**batch)
             loss = outputs.loss
-            loss = loss / gradient_accumulation_steps
+            loss = loss / gradient_accumulation_steps # 梯度累加,但并不会同步与更新梯度
             # We keep track of the loss at each epoch
             if args.with_tracking:
                 total_loss += loss.detach().float()
@@ -222,7 +224,7 @@ def training_function(config, args):
             if step % gradient_accumulation_steps == 0:
                 optimizer.step()
                 lr_scheduler.step()
-                optimizer.zero_grad()
+                optimizer.zero_grad() # 清空梯度
 
             overall_step += 1
 
@@ -266,7 +268,7 @@ def training_function(config, args):
                 output_dir = os.path.join(args.output_dir, output_dir)
             accelerator.save_state(output_dir)
 
-    accelerator.end_training()
+    accelerator.end_training() # destory_process_group
 
 
 def main():
